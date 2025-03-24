@@ -1,6 +1,16 @@
 from flask import Flask, request, jsonify, render_template
 import gspread
 from google.oauth2.service_account import Credentials
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+scope = ["https://www.googleapis.com/auth/spreadsheets"]
+creds = Credentials.from_service_account_file(
+    os.getenv("GOOGLE_CREDENTIALS_PATH"),
+    scopes=scope
+)
 
 app = Flask(__name__)
 
