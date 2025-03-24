@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Client Performance Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-select@1.14.0-beta3/dist/css/bootstrap-select.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <style>
+    body {
+      padding: 30px;
+      background-color: #f8f9fa;
+    }
+    .section {
+      margin-bottom: 40px;
+    }
+    .chart-container {
+      position: relative;
+      width: 100%;
+      max-width: 100%;
+      height: auto;
+      aspect-ratio: 3 / 1;
+    }
+    canvas {
+      width: 100% !important;
+      height: auto !important;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h2 class="text-center mb-5">📊 Client Performance Dashboard</h2>
+
+  <div class="section">
+    <label for="clientDropdown" class="form-label h5">Select Client</label>
+    <select class="form-select" id="clientDropdown">
+      <option value="">-- Select Client --</option>
+      {% for client in clients %}
+      <option value="{{ client }}">{{ client }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div id="filters" class="section" style="display: none;">
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <label class="form-label">From Date</label>
+        <input type="date" class="form-control" id="fromDate" />
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">To Date</label>
+        <input type="date" class="form-control" id="toDate" />
+      </div>
+    </div>
+
+    <label class="form-label">Filter By Algo Platform</label>
+    <select class="form-select selectpicker mb-3" id="algoFilter" multiple data-live-search="true"></select>
+
+    <label class="form-label">Filter By Strategy Name</label>
+    <select class="form-select selectpicker mb-3" id="strategyFilter" multiple data-live-search="true"></select>
+
+    <label class="form-label">Filter By DTE (Days to Expiry)</label>
+    <select class="form-select selectpicker" id="dteFilter" multiple data-live-search="true"></select>
+  </div>
+
+  <div class="section">
+    <h4>📈 PNL Curve</h4>
+    <div class="mb-3">
+      <button class="btn btn-outline-primary me-2" id="lineChartBtn">Line Chart (Cumulative PNL)</button>
+      <button class="btn btn-outline-secondary" id="barChartBtn">Bar Chart (Daily PNL)</button>
+    </div>
+
+    <div class="chart-container mb-4">
+      <canvas id="pnlChart"></canvas>
+    </div>
+
+    <h5>📉 Drawdown</h5>
+    <div class="chart-container">
+      <canvas id="drawdownChart"></canvas>
+    </div>
+  </div>
+
+  <div class="section">
+    <h4>📊 Overall PNL %</h4>
+    <h3 id="overallPnl" class="text-success">0%</h3>
+  </div>
+
+  <div class="section">
+    <h4>💰 Total PNL (Absolute ₹)</h4>
+    <h3 id="totalPnl" class="text-success">₹ 0</h3>
+  </div>
+</div>
+
+<!-- Bootstrap Select JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap-select@1.14.0-beta3/dist/js/bootstrap-select.min.js"></script>
+
+<script>
+  let rawData = [];
+  let pnlChart, drawdownChart;
+  let pnlChartType = 'line';
+  let currentHeaders = [];
+
+  $(document).ready(function () {
+    $("#clientDropdown").change(function () {
+      let client = $(this).val();
+      if (client) fetchClientData(client);
+    });
+
+    $("#algoFilter, #strategyFilter, #dteFilter, #fromDate, #toDate").change(function () {
+      updateDashboard();
+    });
+
+    $("#lineChartBtn").click(function () {
+      pnlChartType = 'line';
+      updateDashboard();
+      setActiveChartButton('line');
+    });
+
+    $("#barChartBtn").click(function () {
+      pnlChartType = 'bar';
+      updateDashboard();
+      setActiveChartButton('bar');
+    });
+
+    setActiveChartButton('line');
+  });
+
+  function setActiveChartButton(type) {
+    if (type === 'line') {
+      $("#lineChartBtn").removeClass('btn-outline-primary').addClass('btn-primary');
+      $("#barChartBtn").removeClass('btn-primary').addClass('btn-outline-secondary');
+    } else {
+      $("#barChartBtn").removeClass('btn-outline-secondary').addClass('btn-primary');
+      $("#lineChartBtn").removeClass('btn-primary').addClass('btn-outline-primary');
+    }
+  }
+
+  function fetchClientData(client) {
+    $.ajax({
+      url: "/get_client_data",
+      type: "POST",
+      contentType: "application/json",
+      data: JSON.stringify({ client_name: client }),
+      success: function (response) {
+        rawData = response.rows;
+        currentHeaders = response.headers;
+        populateFilters(rawData, currentHeaders);
+        $("#filters").show();
+        updateDashboard();
+      }
+    });
+  }
+
+  function populateFilters(data, headers) {
+    const algoIndex = headers.indexOf("Algo Platform");
+    const strategyIndex = headers.indexOf("Strategy Name");
+    const entryIndex = headers.indexOf("Entry Date");
+    const expiryIndex = headers.indexOf("Expiry Date");
+
+    let algoSet = new Set();
+    let strategySet = new Set();
+    let dteSet = new Set();
+
+    data.forEach(row => {
+      algoSet.add(row[algoIndex]);
+      strategySet.add(row[strategyIndex]);
+      let entryDate = new Date(row[entryIndex]);
+      let expiryDate = new Date(row[expiryIndex]);
+      let dte = Math.ceil((expiryDate - entryDate) / (1000 * 60 * 60 * 24));
+      dteSet.add(`${dte}DTE`);
+    });
+
+    populateSelect("#algoFilter", algoSet, "Platforms");
+    populateSelect("#strategyFilter", strategySet, "Strategies");
+    populateSelect("#dteFilter", dteSet, "DTEs", true);
+
+    $('.selectpicker').selectpicker('refresh');
+  }
+
+  function populateSelect(selector, valuesSet, label, sortNumeric = false) {
+    const $select = $(selector);
+    $select.empty(); // Clear existing options
+  
+    // Convert Set to Array and optionally sort
+    let values = Array.from(valuesSet);
+    if (sortNumeric) values.sort((a, b) => parseInt(a) - parseInt(b));
+    else values.sort();
+  
+    // Add "All" option
+    $select.append(`<option value="__all__" selected>All ${label}</option>`);
+  
+    // Add rest of options
+    values.forEach(val => {
+      $select.append(`<option value="${val}">${val}</option>`);
+    });
+  
+    $select.selectpicker('destroy').selectpicker('render');
+  }
+
+  function updateDashboard() {
+    const algo = $("#algoFilter").val() || [];
+    const strategy = $("#strategyFilter").val() || [];
+    const dte = $("#dteFilter").val() || [];
+    
+    const fromDate = $("#fromDate").val();
+    const toDate = $("#toDate").val();
+
+    const entryIndex = currentHeaders.indexOf("Entry Date");
+    const expiryIndex = currentHeaders.indexOf("Expiry Date");
+    const algoIndex = currentHeaders.indexOf("Algo Platform");
+    const strategyIndex = currentHeaders.indexOf("Strategy Name");
+
+    const filtered = rawData.filter(row => {
+      const entryDate = new Date(row[entryIndex]);
+      const expiryDate = new Date(row[expiryIndex]);
+      const dteVal = `${Math.ceil((expiryDate - entryDate) / (1000 * 60 * 60 * 24))}DTE`;
+
+      const matchAlgo = algo.includes("__all__") || algo.length === 0 || algo.includes(row[algoIndex]);
+      const matchStrategy = strategy.includes("__all__") || strategy.length === 0 || strategy.includes(row[strategyIndex]);
+      const matchDte = dte.includes("__all__") || dte.length === 0 || dte.includes(dteVal);
+      const matchFrom = !fromDate || new Date(fromDate) <= entryDate;
+      const matchTo = !toDate || new Date(toDate) >= entryDate;
+
+      return matchAlgo && matchStrategy && matchDte && matchFrom && matchTo;
+    });
+
+    updatePnlCurve(filtered, currentHeaders);
+    updateDrawdownChart(filtered, currentHeaders);
+    updateOverallPnl(filtered, currentHeaders);
+  }
+
+  function updatePnlCurve(data, headers) {
+    const exitIndex = headers.indexOf("Exit Date");
+    const pnlIndex = headers.indexOf("Strategy PNL (Realized)");
+    let dateMap = new Map();
+
+    data.forEach(row => {
+      const date = row[exitIndex];
+      const pnl = parseFloat(row[pnlIndex].replace(/,/g, '')) || 0;
+      dateMap.set(date, (dateMap.get(date) || 0) + pnl);
+    });
+
+    const dates = Array.from(dateMap.keys()).sort();
+    let pnlValues = [], cumulative = 0;
+
+    dates.forEach(date => {
+      const val = dateMap.get(date);
+      cumulative += val;
+      pnlValues.push(pnlChartType === 'line' ? cumulative : val);
+    });
+
+    if (pnlChart) pnlChart.destroy();
+    pnlChart = new Chart(document.getElementById('pnlChart'), {
+      type: pnlChartType,
+      data: {
+        labels: dates,
+        datasets: [{
+          label: pnlChartType === 'line' ? 'Cumulative PNL' : 'Daily PNL',
+          data: pnlValues,
+          backgroundColor: pnlChartType === 'bar' ? 'rgba(40, 167, 69, 0.5)' : 'transparent',
+          borderColor: 'green',
+          tension: 0.3
+        }]
+      }
+    });
+  }
+
+  function updateDrawdownChart(data, headers) {
+    const exitIndex = headers.indexOf("Exit Date");
+    const pnlIndex = headers.indexOf("Strategy PNL (Realized)");
+    let dateMap = new Map();
+
+    data.forEach(row => {
+      const date = row[exitIndex];
+      const pnl = parseFloat(row[pnlIndex].replace(/,/g, '')) || 0;
+      dateMap.set(date, (dateMap.get(date) || 0) + pnl);
+    });
+
+    const dates = Array.from(dateMap.keys()).sort();
+    let cumulative = 0, cumulativePnls = [];
+
+    dates.forEach(date => {
+      cumulative += dateMap.get(date);
+      cumulativePnls.push(cumulative);
+    });
+
+    let maxSoFar = cumulativePnls[0];
+    const drawdowns = cumulativePnls.map(pnl => {
+      maxSoFar = Math.max(maxSoFar, pnl);
+      return pnl - maxSoFar;
+    });
+
+    if (drawdownChart) drawdownChart.destroy();
+    drawdownChart = new Chart(document.getElementById('drawdownChart'), {
+      type: 'line',
+      data: {
+        labels: dates,
+        datasets: [{
+          label: 'Drawdown',
+          data: drawdowns,
+          borderColor: 'red',
+          backgroundColor: 'rgba(220, 53, 69, 0.1)',
+          tension: 0.3
+        }]
+      },
+      options: {
+        scales: {
+          y: {
+            ticks: {
+              callback: value => '₹' + value.toLocaleString('en-IN')
+            }
+          }
+        }
+      }
+    });
+  }
+
+  function updateOverallPnl(data, headers) {
+    const pnlIndex = headers.indexOf("Strategy PNL (Realized)");
+    const exposureIndex = headers.indexOf("Total Exposure");
+    let totalPnl = 0, totalExposure = 0;
+
+    data.forEach(row => {
+      totalPnl += parseFloat(row[pnlIndex].replace(/,/g, '')) || 0;
+      totalExposure += parseFloat(row[exposureIndex].replace(/,/g, '')) || 0;
+    });
+
+    const pnlPercent = totalExposure ? ((totalPnl / totalExposure) * 100).toFixed(2) : 0;
+    const color = totalPnl >= 0 ? 'text-success' : 'text-danger';
+
+    $("#overallPnl").attr("class", color).text(`${pnlPercent}%`);
+    $("#totalPnl").attr("class", color).text(totalPnl.toLocaleString('en-IN', { style: 'currency', currency: 'INR' }));
+  }
+</script>
+<!-- Bootstrap Bundle (for dropdowns) -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- Bootstrap Select JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap-select@1.14.0-beta3/dist/js/bootstrap-select.min.js"></script>
+</body>
+</html>
