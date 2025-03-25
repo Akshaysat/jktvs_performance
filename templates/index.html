@@ -156,8 +156,7 @@
   function populateFilters(data, headers) {
     const algoIndex = headers.indexOf("Algo Platform");
     const strategyIndex = headers.indexOf("Strategy Name");
-    const entryIndex = headers.indexOf("Entry Date");
-    const expiryIndex = headers.indexOf("Expiry Date");
+    const dteIndex = headers.indexOf("DTE");
 
     let algoSet = new Set();
     let strategySet = new Set();
@@ -166,10 +165,7 @@
     data.forEach(row => {
       algoSet.add(row[algoIndex]);
       strategySet.add(row[strategyIndex]);
-      let entryDate = new Date(row[entryIndex]);
-      let expiryDate = new Date(row[expiryIndex]);
-      let dte = Math.ceil((expiryDate - entryDate) / (1000 * 60 * 60 * 24));
-      dteSet.add(`${dte}DTE`);
+      dteSet.add(`${row[dteIndex]}DTE`);
     });
 
     populateSelect("#algoFilter", algoSet, "Platforms");
@@ -181,21 +177,17 @@
 
   function populateSelect(selector, valuesSet, label, sortNumeric = false) {
     const $select = $(selector);
-    $select.empty(); // Clear existing options
-  
-    // Convert Set to Array and optionally sort
+    $select.empty();
+
     let values = Array.from(valuesSet);
     if (sortNumeric) values.sort((a, b) => parseInt(a) - parseInt(b));
     else values.sort();
-  
-    // Add "All" option
+
     $select.append(`<option value="__all__" selected>All ${label}</option>`);
-  
-    // Add rest of options
     values.forEach(val => {
       $select.append(`<option value="${val}">${val}</option>`);
     });
-  
+
     $select.selectpicker('destroy').selectpicker('render');
   }
 
@@ -203,19 +195,19 @@
     const algo = $("#algoFilter").val() || [];
     const strategy = $("#strategyFilter").val() || [];
     const dte = $("#dteFilter").val() || [];
-    
+
     const fromDate = $("#fromDate").val();
     const toDate = $("#toDate").val();
 
     const entryIndex = currentHeaders.indexOf("Entry Date");
     const expiryIndex = currentHeaders.indexOf("Expiry Date");
+    const dteIndex = currentHeaders.indexOf("DTE");
     const algoIndex = currentHeaders.indexOf("Algo Platform");
     const strategyIndex = currentHeaders.indexOf("Strategy Name");
 
     const filtered = rawData.filter(row => {
       const entryDate = new Date(row[entryIndex]);
-      const expiryDate = new Date(row[expiryIndex]);
-      const dteVal = `${Math.ceil((expiryDate - entryDate) / (1000 * 60 * 60 * 24))}DTE`;
+      const dteVal = `${row[dteIndex]}DTE`;
 
       const matchAlgo = algo.includes("__all__") || algo.length === 0 || algo.includes(row[algoIndex]);
       const matchStrategy = strategy.includes("__all__") || strategy.length === 0 || strategy.includes(row[strategyIndex]);
@@ -334,10 +326,9 @@
     $("#totalPnl").attr("class", color).text(totalPnl.toLocaleString('en-IN', { style: 'currency', currency: 'INR' }));
   }
 </script>
-<!-- Bootstrap Bundle (for dropdowns) -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
-<!-- Bootstrap Select JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap-select@1.14.0-beta3/dist/js/bootstrap-select.min.js"></script>
+
 </body>
 </html>
